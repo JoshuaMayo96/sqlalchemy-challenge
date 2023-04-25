@@ -1,26 +1,38 @@
-# Import the dependencies.
+#################################################
+# Import Necessary Libraries
+#################################################
+import numpy as np
+import datetime as dt
+
+from flask import Flask, jsonify
+from sqlalchemy import create_engine, func
+from sqlalchemy.orm import Session
+from sqlalchemy.ext.automap import automap_base
+
+
 
 
 
 #################################################
 # Database Setup
 #################################################
+engine = create_engine("sqlite:///Resources/hawaii.sqlite")
+
+Base = automap_base()
+Base.prepare(engine, reflect=True)
+
+Measurement = Base.classes.measurement
+Station = Base.classes.station
 
 
-# reflect an existing database into a new model
 
-# reflect the tables
-
-
-# Save references to each table
-
-
-# Create our session (link) from Python to the DB
 
 
 #################################################
 # Flask Setup
 #################################################
+app = Flask(__name__)
+
 
 
 
@@ -28,3 +40,142 @@
 #################################################
 # Flask Routes
 #################################################
+# Establish welcome route. Displays all avaialable API routes when a user visits the root URL. 
+@app.route("/")
+def welcome():
+    """List all available api routes."""
+    return (
+        f"Available Routes:<br/>"
+        f"/api/v1.0/precipitation<br/>"
+        f"/api/v1.0/stations<br/>"
+        f"/api/v1.0/tobs<br/>"
+        f"/api/v1.0/start<br/>"
+        f"/api/v1.0/start/end"
+    )
+
+
+# Establish precipitation route. This route queries the database for all dates and precipitation values then returns the results as a JSON object.
+@app.route("/api/v1.0/precipitation")
+def precipitation():
+    session = Session(engine)
+
+    results = session.query(Measurement.date, Measurement.prcp).all()
+
+    session.close()
+
+    all_precipitation = []
+    for date, prcp in results:
+        precipitation_dict = {}
+        precipitation_dict[date] = prcp
+        all_precipitation.append(precipitation_dict)
+
+    return jsonify(all_precipitation)
+
+
+# Establish stations route. This route queries the database for station information then returns the results as a JSON object.
+@app.route("/api/v1.0/stations")
+def stations():
+    session = Session(engine)
+
+    '''Returns a list of all stations in the database.'''
+
+    results = session.query(Station.id, Station.station, Station.name, Station.latitude, Station.longitude, Station.elevation).all()
+
+    session.close()
+
+    all_stations = []
+    for id, station, name, latitude, longitude, elevation in results:
+        station_dict = {}
+        station_dict['Id'] = id
+        station_dict['station'] = station
+        station_dict['name'] = name
+        station_dict['latitude'] = latitude
+        station_dict['longitude'] = longitude
+        station_dict['elevation'] = elevation
+        all_stations.append(station_dict)
+
+    return jsonify(all_stations)
+
+
+# Esablish temperature observation route. This route queries the database for temperature observations for the past year then returns the results as a JSON.
+@app.route("/api/v1.0/tobs")
+def temperature_observation():
+    session = Session(engine)
+
+    '''Returns a list of all temperature observation data in the database.'''
+
+    results_date = session.query(Measurement.date).order_by(Measurement.date.desc()).first()
+    str_date = list(np.ravel(results_date))[0]
+    latest_date = dt.datetime.strptime(str_date, "%Y-%m-%d")
+    year_back = latest_date - dt.timedelta(days=366)
+
+    results = session.query(Measurement.date, Measurement.tobs).order_by(Measurement.date.desc()).\
+        filter(Measurement.date >= year_back).all()
+
+    session.close()
+
+    all_temperature = []
+    for tobs, date in results:
+        tobs_dict = {}
+        tobs_dict['date'] = date
+        tobs_dict['tobs'] = tobs
+        all_temperature.append(tobs_dict)
+
+    return jsonify(all_temperature)
+
+
+# Establish start and end date route. This route queries the database for temperature observations for a specified date range then runs a query to calculate...
+# the min, average, and max temperature for the specified start-end date range.
+@app.route("/api/v1.0/<start>/<end>")
+def calculate_temps(start, end):
+    session = Session(engine)
+
+    """Returns TMIN, TAVG, and TMAX for a list of a specified start date to a specified end date.
+    
+    Argument formats:
+        start date (string): %Y-%m-%d
+        end date (string): %Y-%m-%d
+        
+    """
+
+    results = session.query(func.min(Measurement.tobs), func.avg(Measurement.tobs), func.max(Measurement.tobs)).\
+        filter(Measurement.date >= start).filter(Measurement.date <= end).all()
+
+    session.close()
+
+    temp_obs = {}
+    temp_obs["Min_Temp"] = results[0][0]
+    temp_obs["avg_Temp"] = results[0][1]
+    temp_obs["max_Temp"] = results[0][2]
+
+    return jsonify(temp_obs)
+
+
+# Establish the start to most recent route. This route queries the database for temperature observations for a specified start date to the most recent date...
+# available in the database. It then runs a query to cacluate the min, average, and max temperature for the specifec start to most recent date range. 
+@app.route("/api/v1.0/<start>")
+def calculate_temps_start_date(start):
+    session = Session(engine)
+    
+    """Returns TMIN, TAVG, and TMAX for a list of a specified start date to the most recent date in the database.
+    
+    Argument formats:
+        start date (string): %Y-%m-%d
+        end date (string): %Y-%m-%d
+        
+    """
+
+    results=session.query(func.min(Measurement.tobs), func.avg(Measurement.tobs), func.max(Measurement.tobs)).\
+                filter(Measurement.date >= start).all()
+    
+    session.close()
+
+    temp_obs={}
+    temp_obs["Min_Temp"]=results[0][0]
+    temp_obs["avg_Temp"]=results[0][1]
+    temp_obs["max_Temp"]=results[0][2]
+
+    return jsonify(temp_obs)
+
+if __name__ == '__main__':
+    app.run(debug=True)
